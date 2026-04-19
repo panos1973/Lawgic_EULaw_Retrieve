@@ -1,0 +1,140 @@
+{
+  "_comment": "Single canonical vocabulary. Consumed by: (1) extraction prompt, (2) Lawgic's Gemini query-enrichment prompt, (3) retriever filter validator. Keep in sync across all three.",
+  "_source": "docs/handoff/07_RETRIEVAL.md section 3",
+  "legal_domain": [
+    "data_protection",
+    "employment",
+    "competition",
+    "tax",
+    "IP",
+    "environmental",
+    "consumer",
+    "company",
+    "financial",
+    "commercial",
+    "criminal",
+    "asylum"
+  ],
+  "document_subtype_legislation": [
+    "regulation",
+    "directive",
+    "decision",
+    "implementing_regulation",
+    "delegated_regulation",
+    "consolidated"
+  ],
+  "document_subtype_case_law": [
+    "judgment",
+    "order",
+    "ag_opinion"
+  ],
+  "court_level": ["CJ", "GC"],
+  "procedure_type": [
+    "preliminary-reference",
+    "direct-action",
+    "appeal",
+    "infringement",
+    "opinion"
+  ],
+  "authority_weight": ["binding", "persuasive"],
+  "interpretation_strength": [
+    "applies",
+    "distinguishes",
+    "establishes",
+    "overrides",
+    "clarifies"
+  ],
+  "relation_type": [
+    "amends", "repeals", "replaces", "adds", "modifies", "renumbers",
+    "consolidates", "based_on", "corrects", "implements",
+    "interprets", "cites"
+  ],
+  "applies_to": [
+    "controller", "processor", "employer", "employee",
+    "importer", "exporter", "consumer", "public-authority",
+    "SME", "large-enterprise", "data-subject", "financial-institution",
+    "service-provider", "platform-operator", "marketplace",
+    "manufacturer", "distributor"
+  ],
+  "penalty_type": [
+    "administrative-fine",
+    "criminal-sanction",
+    "injunction",
+    "compensation",
+    "license-revocation"
+  ],
+  "chunk_type_legislation": ["article", "recital", "annex"],
+  "chunk_type_case_law": ["holding", "reasoning"],
+  "topic_tags": {
+    "data_protection": [
+      "processing_principles", "lawfulness", "consent", "data_subject_rights",
+      "right_to_erasure", "right_to_access", "right_to_portability",
+      "data_breach", "breach_notification", "DPIA", "DPO",
+      "cross_border_transfer", "adequacy_decision", "SCCs", "BCRs",
+      "supervisory_authority", "certification", "children_data",
+      "profiling", "automated_decision_making", "sensitive_data",
+      "accountability", "data_minimization", "purpose_limitation"
+    ],
+    "employment": [
+      "working_time", "rest_breaks", "annual_leave", "parental_leave",
+      "maternity_leave", "equal_treatment", "non_discrimination",
+      "fixed_term_contracts", "temporary_agency_work", "posting_of_workers",
+      "collective_redundancy", "transfer_of_undertakings", "works_councils",
+      "information_consultation", "health_and_safety", "whistleblower_protection"
+    ],
+    "competition": [
+      "anti_competitive_agreements", "abuse_of_dominance", "merger_control",
+      "state_aid", "vertical_restraints", "horizontal_agreements",
+      "cartels", "leniency", "commitment_decisions", "fines",
+      "private_enforcement", "damages_actions", "block_exemptions"
+    ],
+    "tax": [
+      "VAT", "corporate_tax", "withholding_tax", "parent_subsidiary",
+      "interest_and_royalties", "anti_tax_avoidance", "transfer_pricing",
+      "DAC", "customs_duties", "excise_duties", "administrative_cooperation"
+    ],
+    "IP": [
+      "copyright", "related_rights", "trademarks", "designs",
+      "patents", "supplementary_protection_certificate", "trade_secrets",
+      "database_rights", "geographical_indications", "enforcement",
+      "limitations_and_exceptions", "collective_management"
+    ],
+    "environmental": [
+      "emissions_trading", "climate", "industrial_emissions",
+      "water", "waste", "chemicals", "biodiversity",
+      "environmental_liability", "environmental_assessment"
+    ],
+    "consumer": [
+      "unfair_terms", "unfair_commercial_practices", "distance_selling",
+      "consumer_rights_directive", "product_safety", "product_liability",
+      "package_travel", "consumer_credit", "mortgage_credit",
+      "collective_redress", "alternative_dispute_resolution"
+    ],
+    "company": [
+      "company_law_directive", "mergers", "divisions", "cross_border_mergers",
+      "single_member_companies", "disclosure", "capital_maintenance",
+      "financial_reporting", "audit", "corporate_governance"
+    ],
+    "financial": [
+      "MiFID", "UCITS", "AIFMD", "CRD", "CRR", "Solvency_II",
+      "payment_services", "AML", "market_abuse", "prospectus",
+      "insurance_distribution", "benchmarks", "securitisation"
+    ],
+    "commercial": [
+      "agency", "distribution", "franchising", "late_payment",
+      "commercial_contracts", "sale_of_goods", "digital_content"
+    ],
+    "criminal": [
+      "european_arrest_warrant", "european_investigation_order",
+      "mutual_recognition", "cybercrime", "financial_crime",
+      "money_laundering", "terrorism", "trafficking",
+      "procedural_rights", "victims_rights"
+    ],
+    "asylum": [
+      "dublin_regulation", "qualification_directive",
+      "asylum_procedures", "reception_conditions",
+      "family_reunification", "long_term_residence",
+      "return_directive", "schengen"
+    ]
+  }
+}
