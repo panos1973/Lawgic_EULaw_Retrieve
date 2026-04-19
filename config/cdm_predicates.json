@@ -1,0 +1,61 @@
+{
+  "_comment": "Provisional CDM predicate list. PER 02_DATA_SOURCES.md AND 10_OPEN_QUESTIONS.md #4, run scripts/parse_cdm_ontology.py before first production SPARQL run to replace this file with predicates parsed from the live ontology. Silent zero-result queries on misspelled predicates are the #1 failure mode.",
+  "_verified": false,
+  "_last_parsed_at": null,
+  "legislation": {
+    "identifier_celex": "cdm:resource_legal_id_celex",
+    "resource_type": "cdm:work_has_resource-type",
+    "eurovoc_concept": "cdm:work_is_about_concept_eurovoc",
+    "date_document": "cdm:work_date_document",
+    "in_force": "cdm:resource_legal_in-force",
+    "do_not_index": "cdm:do_not_index",
+    "eli_uri": "cdm:resource_legal_id_eli"
+  },
+  "case_law": {
+    "ecli": "cdm:case-law_ecli",
+    "delivered_by_court": "cdm:case-law_delivered_by_court",
+    "has_type_procedure": "cdm:case-law_has_type_procedure",
+    "interprets_resource_legal": "cdm:case-law_interprets_resource_legal",
+    "cites_resource_legal": "cdm:case-law_cites_resource_legal"
+  },
+  "relationships": {
+    "amends": "cdm:resource_legal_amends_resource_legal",
+    "repeals": "cdm:resource_legal_repeals_resource_legal",
+    "based_on": "cdm:resource_legal_based_on_resource_legal",
+    "corrected_by": "cdm:resource_legal_corrected_by_resource_legal",
+    "consolidated_by": "cdm:consolidated_by",
+    "implements": "cdm:resource_legal_implements",
+    "cites_work": "cdm:work_cites_work"
+  },
+  "expression": {
+    "belongs_to_work": "cdm:expression_belongs_to_work",
+    "uses_language": "cdm:expression_uses_language",
+    "title": "cdm:expression_title"
+  },
+  "manifestation": {
+    "manifests_expression": "cdm:manifestation_manifests_expression",
+    "type": "cdm:manifestation_type"
+  },
+  "item": {
+    "belongs_to_manifestation": "cdm:item_belongs_to_manifestation"
+  },
+  "resource_types": {
+    "regulation": "http://publications.europa.eu/resource/authority/resource-type/REG",
+    "regulation_implementing": "http://publications.europa.eu/resource/authority/resource-type/REG_IMPL",
+    "regulation_delegated": "http://publications.europa.eu/resource/authority/resource-type/REG_DEL",
+    "directive": "http://publications.europa.eu/resource/authority/resource-type/DIR",
+    "directive_implementing": "http://publications.europa.eu/resource/authority/resource-type/DIR_IMPL",
+    "decision": "http://publications.europa.eu/resource/authority/resource-type/DEC",
+    "judgment": "http://publications.europa.eu/resource/authority/resource-type/JUDG",
+    "order": "http://publications.europa.eu/resource/authority/resource-type/ORDER",
+    "ag_opinion": "http://publications.europa.eu/resource/authority/resource-type/OPIN_AG",
+    "corrigendum": "http://publications.europa.eu/resource/authority/resource-type/CORRIGENDUM"
+  },
+  "languages": {
+    "en": "http://publications.europa.eu/resource/authority/language/ENG",
+    "el": "http://publications.europa.eu/resource/authority/language/ELL",
+    "de": "http://publications.europa.eu/resource/authority/language/DEU",
+    "fr": "http://publications.europa.eu/resource/authority/language/FRA",
+    "it": "http://publications.europa.eu/resource/authority/language/ITA"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "_comment": "Public endpoints used by the pipeline. API keys are stored via the Electron settings panel (OS keychain / userData), never in this file.",
+  "cellar_sparql": "https://publications.europa.eu/webapi/rdf/sparql",
+  "cellar_atom_feed": "https://publications.europa.eu/webapi/notification/",
+  "cdm_ontology": "http://publications.europa.eu/ontology/cdm",
+  "eli_ontology": "https://data.europa.eu/eli/ontology",
+  "eurovoc_thesaurus": "http://eurovoc.europa.eu/",
+  "dashscope_singapore": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+  "dashscope_beijing": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "voyage_api": "https://api.voyageai.com/v1",
+  "weaviate_cluster": "lawgicfeb26",
+  "courtesy": {
+    "sparql_page_size": 500,
+    "sparql_max_pages": 20,
+    "sparql_courtesy_delay_seconds": 1,
+    "sparql_max_concurrency": 5,
+    "llm_default_qps": 3
+  }
+}

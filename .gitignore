@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Node / Electron
+node_modules/
+dist/
+out/
+
+# Data directory — user-local, may contain downloaded XHTML, logs, cost logs
+data/
+scripts/cost_log.jsonl
+
+# Environment + secrets (we use Electron settings.json in userData; never in repo)
+.env
+.env.local
+*.env
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
