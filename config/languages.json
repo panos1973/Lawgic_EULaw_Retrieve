@@ -1,0 +1,50 @@
+{
+  "primary_metadata_language": "en",
+  "supported_languages": [
+    {
+      "code": "en",
+      "name": "English",
+      "active": true,
+      "named_vector": "vector_en",
+      "text_field": "text_en",
+      "rollout_phase": "mvp",
+      "notes": "Metadata language. Vectorized in Phase 2."
+    },
+    {
+      "code": "el",
+      "name": "Greek",
+      "active": false,
+      "named_vector": "vector_el",
+      "text_field": "text_el",
+      "rollout_phase": "phase_5_second_pass",
+      "notes": "Schema slot reserved. Vectors added after English pipeline is validated."
+    },
+    {
+      "code": "de",
+      "name": "German",
+      "active": false,
+      "named_vector": "vector_de",
+      "text_field": "text_de",
+      "rollout_phase": "future",
+      "notes": "Planned for Germany market launch."
+    },
+    {
+      "code": "fr",
+      "name": "French",
+      "active": false,
+      "named_vector": "vector_fr",
+      "text_field": "text_fr",
+      "rollout_phase": "future",
+      "notes": "Planned for France market launch."
+    },
+    {
+      "code": "it",
+      "name": "Italian",
+      "active": false,
+      "named_vector": "vector_it",
+      "text_field": "text_it",
+      "rollout_phase": "future",
+      "notes": "Planned for Italy market launch."
+    }
+  ]
+}

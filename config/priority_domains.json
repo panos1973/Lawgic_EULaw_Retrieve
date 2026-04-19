@@ -1,0 +1,21 @@
+{
+  "_comment": "EuroVoc concept IDs for Tier A MVP scope. Per 10_OPEN_QUESTIONS.md #5, these IDs are provisional and MUST be verified against http://eurovoc.europa.eu/ before first SPARQL run. Wrong IDs return zero results silently.",
+  "_verification_script": "scripts/verify_eurovoc_ids.py",
+  "_source": "docs/handoff/02_DATA_SOURCES.md",
+  "tier_1": [
+    {"id": "754",  "label": "data protection",      "uri": "http://eurovoc.europa.eu/754",  "verified": false},
+    {"id": "711",  "label": "employment",           "uri": "http://eurovoc.europa.eu/711",  "verified": false},
+    {"id": "710",  "label": "competition",          "uri": "http://eurovoc.europa.eu/710",  "verified": false},
+    {"id": "890",  "label": "tax law",              "uri": "http://eurovoc.europa.eu/890",  "verified": false},
+    {"id": "3365", "label": "intellectual property","uri": "http://eurovoc.europa.eu/3365", "verified": false}
+  ],
+  "tier_2": [
+    {"id": "4358", "label": "environmental protection", "uri": "http://eurovoc.europa.eu/4358", "verified": false},
+    {"id": "878",  "label": "consumer protection",       "uri": "http://eurovoc.europa.eu/878",  "verified": false},
+    {"id": "727",  "label": "company law",               "uri": "http://eurovoc.europa.eu/727",  "verified": false},
+    {"id": "2495", "label": "criminal law",              "uri": "http://eurovoc.europa.eu/2495", "verified": false},
+    {"id": "2490", "label": "asylum and immigration",    "uri": "http://eurovoc.europa.eu/2490", "verified": false},
+    {"id": "2445", "label": "financial services",        "uri": "http://eurovoc.europa.eu/2445", "verified": false},
+    {"id": "2482", "label": "commercial law",            "uri": "http://eurovoc.europa.eu/2482", "verified": false}
+  ]
+}
