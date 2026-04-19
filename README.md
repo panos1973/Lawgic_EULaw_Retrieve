@@ -1,74 +1,118 @@
-# Lawgic_EULaw_Retrieve Handoff — Read This First
+# Lawgic EU Law Retrieve
 
-> **For a new Claude Code session:** this folder contains the complete decision record from the planning conversation that preceded implementation. Read everything before touching code. Nothing here is provisional — all architectural choices are locked.
+Electron desktop app + Python pipeline that fetches, enriches, embeds, and
+tracks European Union legislation and case law for use by the
+[Lawgic](https://lawgic.gr) legal AI platform.
 
-## How to use these docs in a new Claude Code session
+**Source of truth for all design decisions:** [`docs/handoff/`](docs/handoff/)
+(11 numbered files, read them in order).
 
-1. **Grant the new session access to `panos1973/Lawgic_EULaw_Retrieve`** in your harness config.
-2. **In the very first message to the new Claude Code**, paste this:
+## Quick status
 
-> I'm continuing a project to build `Lawgic_EULaw_Retrieve`. The complete planning and architecture has been written up as a handoff document in `panos1973/lawgic_corp` on branch `claude/embed-shipping-regulations-tsB0y`, folder `docs/lawgic_eulaw_handoff/`. Please read all 11 files in that folder in numerical order (00 through 10), then confirm your understanding before writing any code. After confirming, start with Phase 1 Task 1 from `09_IMPLEMENTATION_PLAN.md`.
+- **Phase 1 (scaffold):** in progress — branch `claude/setup-electron-eu-law-GyG5W`
+- **Phase 2 (first English ingestion):** not started
+- **Phase 3 (knowledge graph):** not started
 
-3. Claude will read the docs and resume exactly where this conversation left off. No context lost.
+## Architecture in one paragraph
 
-## File index
+A CELLAR SPARQL + Atom-feed fetcher pulls EU documents; a parser splits them
+into chunks (article-level for legislation, two-level for case law) with an
+Anthropic-style contextual prefix; Qwen3.5 Flash (default) and Qwen3.6 Plus
+(case-law reasoning) enrich each chunk with English metadata via DashScope
+OpenAI-compat; Voyage `voyage-context-3` embeds the result; Weaviate's
+`lawgicfeb26` cluster stores chunks in two collections (`EULaws`,
+`EUCourtDecisions`) with named vectors per language; a third collection
+(`EULawIngestionStatus`) tracks per-document state; a Postgres table
+(`eu_law_edges`) holds the amendment/interpretation knowledge graph.
 
-| # | File | Purpose |
-|---|---|---|
-| 00 | `00_OVERVIEW.md` | Project context, source/target repos, locked decisions |
-| 01 | `01_ARCHITECTURE.md` | High-level shape, collection responsibilities, why Postgres for graph |
-| 02 | `02_DATA_SOURCES.md` | CELLAR SPARQL, Atom feed, CDM ontology warnings, priority domains |
-| 03 | `03_SCHEMAS.md` | Full schemas: `EULaws`, `EUCourtDecisions`, `EULawIngestionStatus`, `eu_law_edges` |
-| 04 | `04_LANGUAGE_STRATEGY.md` | Named vectors per language, per-market rollout economics |
-| 05 | `05_MODEL_STACK.md` | Qwen3.5 Flash + Qwen3.6 Plus + Gemini fallback, DashScope integration |
-| 06 | `06_COSTS.md` | Tier A/B/C estimates, per-language costs, query-time costs |
-| 07 | `07_RETRIEVAL.md` | Contextual retrieval, summaries, controlled vocab, chunking strategies |
-| 08 | `08_ELECTRON_APP.md` | UI layout, IPC handlers, add-language flow, incremental flow |
-| 09 | `09_IMPLEMENTATION_PLAN.md` | 7 phases, 3-week timeline, milestones |
-| 10 | `10_OPEN_QUESTIONS.md` | Things requiring empirical validation, decision rules, launch checklist |
+## Repo layout
 
-## Locked decisions (never re-litigate)
+```
+Lawgic_EULaw_Retrieve/
+├── electron/                    # Electron shell
+│   ├── main.js
+│   ├── preload.js
+│   └── renderer/
+│       ├── index.html
+│       ├── styles.css
+│       └── renderer.js
+├── config/                      # JSON configs (checked into git, non-secret)
+│   ├── languages.json
+│   ├── priority_domains.json    # EuroVoc concepts for MVP scope
+│   ├── controlled_vocab.json    # legal_domain / topic_tags / applies_to / ...
+│   ├── cdm_predicates.json      # provisional — run scripts/parse_cdm_ontology.py
+│   └── endpoints.json
+├── python/
+│   ├── pipeline.py              # Thin CLI dispatcher
+│   ├── eu/
+│   │   ├── fetcher.py           # CELLAR SPARQL + Atom + XHTML download
+│   │   ├── parser.py            # XHTML → chunks (article / two-level)
+│   │   ├── extractor.py         # LLM metadata (DashScope Qwen + Gemini fallback)
+│   │   ├── amendment_extractor.py # Pass 1 SPARQL edges + Pass 2 LLM article-level
+│   │   ├── language_adder.py    # "Add language" flow (text + named vector only)
+│   │   └── model_router.py      # task → model mapping (05_MODEL_STACK.md)
+│   ├── shared/
+│   │   ├── embedder.py          # Voyage + Weaviate upsert with named vectors
+│   │   ├── status.py            # EULawIngestionStatus R/W
+│   │   ├── cdm_ontology.py      # rdflib parser for CDM OWL
+│   │   └── utils.py             # config loader, emit(), sha256, uuid5
+│   ├── migrations/
+│   │   └── 001_eu_law_edges.sql # Postgres knowledge-graph DDL
+│   ├── create_eulaws_collection.py
+│   ├── create_eucourt_collection.py
+│   └── create_eustatus_collection.py
+├── scripts/
+│   ├── parse_cdm_ontology.py    # one-off: rewrite config/cdm_predicates.json
+│   ├── verify_qwen_cache.py     # one-off: probe DashScope caching
+│   ├── verify_eurovoc_ids.py    # one-off: verify config/priority_domains.json
+│   ├── estimate_cost.py         # dry-run cost projection
+│   └── eval_extraction.py       # 20-doc quality eval
+├── docs/handoff/                # The 11 architecture documents
+└── package.json
+```
 
-These were debated and decided. Do not re-open unless a genuine blocker appears:
+## Installation (development)
 
-1. Separate repo `Lawgic_EULaw_Retrieve`, not a fork-in-place
-2. Collections separated by document type (`EULaws` vs `EUCourtDecisions`), not by language
-3. Named vectors per language within collections (Weaviate 1.24+)
-4. English-only LLM metadata, shared across languages
-5. Postgres for knowledge graph, not Weaviate
-6. Ingestion state in Weaviate collection, not on disk
-7. Model stack: Qwen3.5 Flash + Qwen3.6 Plus + Gemini fallback — no Claude
-8. Alibaba DashScope OpenAI-compat endpoint, Singapore
-9. Contextual retrieval prefix (Anthropic pattern) is mandatory, not optional
-10. Tier A MVP scope: priority EuroVoc domains only, ~10k laws + 25k cases
+```bash
+# 1. Python env
+cd python
+python3.11 -m venv ../.venv
+source ../.venv/bin/activate
+pip install -r requirements.txt
 
-## Things to validate empirically (deferred from planning)
+# 2. Node + Electron
+cd ..
+npm install
 
-See `10_OPEN_QUESTIONS.md` for the full list. Key ones:
-- DashScope caching on Singapore for Qwen3.5/3.6 (validate on first batch)
-- Qwen3.6 Plus quality on case law holdings (20-doc eval)
-- Cross-lingual retrieval quality (100-query eval per language)
-- CDM predicate names (parse live ontology, don't trust planning doc verbatim)
+# 3. Start the app
+npm start
+```
 
-## Source repos you'll need to read/reference
+## First-run checklist
 
-- **`panos1973/geneseas_localrules_embed`** — copy Electron shell, Qwen integration, 3-stage pipeline. Specifically reuse `python/pipeline.py:714-748` for DashScope calls.
-- **`panos1973/lawgic_corp`** — this repo. Contains Lawgic's existing retrievers (`src/lib/retrievers/`) that will consume the new EU collections with minimal changes.
+Before any ingestion (per `docs/handoff/09_IMPLEMENTATION_PLAN.md` Phase 1):
 
-## First concrete actions for the new session
+- [ ] `python scripts/parse_cdm_ontology.py` — rewrites `config/cdm_predicates.json` with verified predicates
+- [ ] `python scripts/verify_eurovoc_ids.py` — confirms priority-domain EuroVoc IDs resolve
+- [ ] Open the app, fill in Settings (DashScope, Voyage, Weaviate, Postgres)
+- [ ] `python python/create_eulaws_collection.py`
+- [ ] `python python/create_eucourt_collection.py`
+- [ ] `python python/create_eustatus_collection.py`
+- [ ] Run Postgres migration: `psql "$DATABASE_URL" < python/migrations/001_eu_law_edges.sql`
+- [ ] `python scripts/verify_qwen_cache.py` — confirm caching works on chosen endpoint
 
-After reading the 11 docs:
+## Locked decisions
 
-1. Run `scripts/parse_cdm_ontology.py` (to write) — get authoritative CDM predicate list
-2. Scaffold `Lawgic_EULaw_Retrieve` repo structure per `09_IMPLEMENTATION_PLAN.md` Phase 1
-3. Create Weaviate collections on `lawgicfeb26` cluster using `python/create_*_collection.py` scripts
-4. Run Postgres migration `001_eu_law_edges.sql`
-5. Ingest ~500 data_protection docs end-to-end to prove the pipeline
-6. Verify caching works (log `cached_tokens` from DashScope response)
-7. Expand to full Tier A scope only after Phase 2 success
+See `docs/handoff/00_OVERVIEW.md` for the full list. Short version:
+- Separate Weaviate collections per document type, **not** per language
+- Named vectors per language within collections (Weaviate 1.24+)
+- English is the primary metadata language
+- State tracking lives in `EULawIngestionStatus`, not on disk
+- Postgres for the knowledge graph, not Weaviate
+- Model stack: Qwen3.5 Flash + Qwen3.6 Plus + Gemini fallback. No Claude.
+- Contextual retrieval prefix (Anthropic pattern) is mandatory
 
-## One last thing
+## Licensing
 
-**Don't forget to rotate the DashScope API key** that was pasted in the original planning chat (`sk-c97de837...`). Log into the DashScope console, delete it, create a fresh one for production use.
-
-Good luck. Everything you need to resume is in these 11 files.
+EU source data is public domain under Commission Decision 2011/833/EU.
+This repo is Lawgic-internal; not yet licensed for external use.
