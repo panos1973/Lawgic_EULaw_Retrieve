@@ -1,0 +1,36 @@
+{
+  "name": "lawgic-eulaw-retrieve",
+  "version": "0.1.0",
+  "description": "Electron + Python pipeline for EU legislation & case law ingestion into the Lawgic platform",
+  "author": "Panos Karachalios",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "gr.lawgic.eulaw-retrieve",
+    "productName": "Lawgic EU Law Retrieve",
+    "directories": { "output": "dist" },
+    "files": ["electron/**/*"],
+    "extraResources": [
+      { "from": "python", "to": "python", "filter": ["**/*", "!__pycache__/**"] },
+      { "from": "config", "to": "config" },
+      { "from": "scripts", "to": "scripts" }
+    ],
+    "win": { "target": ["nsis"] },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Lawgic-EULaw-Retrieve-${version}-Setup.${ext}"
+    },
+    "mac": { "target": ["dmg"] }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}
