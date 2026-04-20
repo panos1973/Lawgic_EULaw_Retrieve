@@ -21,7 +21,15 @@
       { "from": "config", "to": "config" },
       { "from": "scripts", "to": "scripts" }
     ],
-    "win": { "target": ["nsis"] },
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "artifactName": "Lawgic-EULaw-Retrieve-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Lawgic-EULaw-Retrieve-${version}-${arch}.${ext}"
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

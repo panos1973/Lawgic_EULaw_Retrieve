@@ -10,6 +10,7 @@ venv/
 node_modules/
 dist/
 out/
+package-lock.json
 
 # Data directory — user-local, may contain downloaded XHTML, logs, cost logs
 data/
