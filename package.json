@@ -23,12 +23,12 @@
     ],
     "win": {
       "target": [
+        { "target": "nsis", "arch": ["x64"] },
         { "target": "portable", "arch": ["x64"] }
-      ],
-      "artifactName": "Lawgic-EULaw-Retrieve-${version}-${arch}.${ext}"
+      ]
     },
     "portable": {
-      "artifactName": "Lawgic-EULaw-Retrieve-${version}-${arch}.${ext}"
+      "artifactName": "Lawgic-EULaw-Retrieve-${version}-Portable-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

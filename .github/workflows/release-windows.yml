@@ -1,0 +1,86 @@
+name: Build Windows Release
+
+# Build a Windows installer + portable .exe on every push to main (and on
+# manual trigger), then publish as a GitHub Release with the artifacts
+# attached. The user downloads the Setup.exe, runs it, and answers
+# SmartScreen's "More info -> Run anyway" prompt (the .exe is unsigned).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Mark as prerelease (won't become 'Latest')"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write   # create releases + upload assets
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Windows installer + portable
+        run: npx electron-builder --win nsis portable --x64
+        env:
+          # electron-builder reads GH_TOKEN for its own auto-publish path;
+          # we manage publishing ourselves below, but setting this avoids
+          # stray warnings from electron-builder's telemetry.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute release metadata
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          TAG="v${VERSION}-build.${{ github.run_number }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: List build artifacts
+        shell: bash
+        run: ls -lh dist/*.exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: v${{ steps.meta.outputs.version }} build ${{ github.run_number }}
+          body: |
+            Windows build from commit [`${{ steps.meta.outputs.short_sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }}).
+
+            **Downloads:**
+            - `Lawgic-EULaw-Retrieve-${{ steps.meta.outputs.version }}-Setup.exe` — NSIS installer. Double-click to install; choose an install directory.
+            - `Lawgic-EULaw-Retrieve-${{ steps.meta.outputs.version }}-Portable-x64.exe` — Self-extracting portable build. Run without installing.
+
+            The `.exe` is unsigned, so Windows SmartScreen will warn on first run — click **More info** → **Run anyway**.
+
+            After install:
+            1. Open the app, open Settings, paste your DashScope / Voyage / Weaviate / Postgres credentials.
+            2. Click "Refresh status" to confirm Weaviate is reachable.
+            3. First real run: "Run incremental update" (or the dev "Verify DashScope cache" button).
+
+            Python 3.11 must be installed on your Windows machine and on `PATH`. Install deps once via `pip install -r resources/python/requirements.txt` inside the install directory.
+          files: dist/*.exe
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          make_latest: ${{ github.event.inputs.prerelease != 'true' && 'true' || 'false' }}
