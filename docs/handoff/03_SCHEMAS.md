@@ -1,6 +1,18 @@
 # Schemas
 
-Three Weaviate collections + one Postgres table. All schemas locked — do not add or remove fields without reason.
+**Four Weaviate collections.** Postgres knowledge graph dropped (per user decision, 2026-04 — "better to have everything in a single place"). All amendments now live in a Weaviate collection with vectors + text, queryable semantically and structurally.
+
+All schemas locked — do not add or remove fields without reason.
+
+**Infrastructure (same for all 4 collections):**
+- HNSW + 8-bit Rotational Quantization (`rescore_limit=200`), DOT distance
+- Named vectors per language: `vector_en`, `vector_el`, `vector_de`, `vector_fr`, `vector_it` (EULaws / EUCourtDecisions / EUAmendments only; EULawIngestionStatus has no vectors)
+- Voyage `voyage-context-3`, 1024 dimensions
+- BM25: `b=0.3`, `k1=1.5` (long legal text tuning)
+- Stopwords: English preset + English legal-function words + 102 Greek function words
+- Sharding: `virtual_per_physical=128, desired_count=1`, replication factor 1
+- See `python/shared/weaviate_config.py` for the exact shared config block.
+- Per-property `Tokenization` + `index_filterable/searchable/range_filters` flags chosen per field — see the collection creator scripts for authoritative values.
 
 ## 1. `EULaws` Weaviate collection
 
@@ -126,22 +138,23 @@ All of these are Gemini-enrichment targets — must use the controlled vocabular
 
 **Purpose:** The single source of truth for "what has been ingested". Enables resumability from any machine. No vectors — metadata-only collection (BM25 default params for any rare text search).
 
-**Uniqueness key:** `uuid5(celex + "::" + language)` — same CELEX in two languages = two status rows.
+**Uniqueness key:** `uuid5(celex + "::" + language + "::" + collection_kind)` where `collection_kind ∈ {'law', 'case', 'amendment'}`.
 
 | # | Field | Type | Notes |
 |---|---|---|---|
 | 1 | `celex` | TEXT | |
 | 2 | `language` | TEXT | ISO 639-1: `en`, `el`, `de`, `fr`, `it` |
-| 3 | `document_type` | TEXT | `legislation` or `case_law` |
-| 4 | `cellar_recorded_at` | DATE | From Atom feed — monotonic. Used to derive watermark. |
-| 5 | `text_hash` | TEXT | SHA-256 of fetched XHTML. Detects re-fetch needed. |
-| 6 | `status` | TEXT | Enum: `discovered`, `fetched`, `enriched`, `embedded`, `failed_fetch`, `failed_enrich`, `failed_embed`, `failed_integrity`, `superseded` |
-| 7 | `last_updated_at` | DATE | Touched on every state transition |
-| 8 | `superseded_by` | TEXT | Nullable; CELEX of repealing act |
-| 9 | `retry_count` | INT | Default 0, max 3 for failed states |
-| 10 | `error_message` | TEXT | Nullable; only populated on failed states |
+| 3 | `collection_kind` | TEXT | `law` / `case` / `amendment` — which content collection this state row tracks |
+| 4 | `document_type` | TEXT | `legislation` or `case_law` |
+| 5 | `cellar_recorded_at` | DATE | From Atom feed — monotonic. Used to derive watermark. |
+| 6 | `text_hash` | TEXT | SHA-256 of fetched XHTML. Detects re-fetch needed. |
+| 7 | `status` | TEXT | Enum: `discovered`, `fetched`, `enriched`, `embedded`, `failed_fetch`, `failed_enrich`, `failed_embed`, `failed_integrity`, `superseded`, `missing_source` |
+| 8 | `last_updated_at` | DATE | Touched on every state transition |
+| 9 | `superseded_by` | TEXT | Nullable; CELEX of repealing act |
+| 10 | `retry_count` | INT | Default 0, max 3 for failed states |
+| 11 | `error_message` | TEXT | Nullable; only populated on failed states |
 
-**Total: 10 fields.** Deliberately minimal.
+**Total: 11 fields.** Deliberately minimal.
 
 **Derived watermark query (run each incremental run):**
 ```
@@ -159,64 +172,121 @@ Mismatch → mark `status='failed_integrity'` and alert. Catches silent partial 
 
 ---
 
-## 4. `eu_law_edges` Postgres table
 
-**Purpose:** Knowledge graph. Amendments, repeals, citations, interpretations. NOT in Weaviate — lives in the same Postgres instance as Lawgic's existing `pgvector` uploaded-file embeddings.
+## 4. `EUAmendments` Weaviate collection
 
-```sql
-CREATE TABLE eu_law_edges (
-  id                         BIGSERIAL PRIMARY KEY,
-  source_celex               TEXT NOT NULL,
-  source_article             TEXT,                    -- nullable for doc-level edges
-  target_celex               TEXT NOT NULL,
-  target_article             TEXT,                    -- nullable for doc-level edges
-  relation_type              TEXT NOT NULL CHECK (relation_type IN (
-      'amends', 'repeals', 'replaces', 'adds', 'modifies', 'renumbers',
-      'consolidates', 'based_on', 'corrects', 'implements',
-      'interprets', 'cites'
-  )),
-  interpretation_strength    TEXT CHECK (interpretation_strength IN (
-      'applies', 'distinguishes', 'establishes', 'overrides', 'clarifies'
-  )),                                                 -- populated for case-law edges only
-  effective_date             DATE,
-  confidence                 NUMERIC(3,2) NOT NULL CHECK (confidence BETWEEN 0 AND 1),
-  data_source                TEXT NOT NULL CHECK (data_source IN (
-      'cellar_sparql', 'llm_extraction', 'manual'
-  )),
-  extracted_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  source_doc_type            TEXT,                    -- legislation | case_law
-  UNIQUE (source_celex, source_article, target_celex, target_article, relation_type)
-);
+**Purpose:** Atomic amendment instructions. One row per "Article X of CELEX A is replaced/deleted/added/modified/renumbered" change. Replaces the Postgres `eu_law_edges` table from earlier drafts — everything now in Weaviate, per user decision (2026-04).
 
-CREATE INDEX eu_law_edges_source_idx ON eu_law_edges (source_celex, source_article);
-CREATE INDEX eu_law_edges_target_idx ON eu_law_edges (target_celex, target_article);
-CREATE INDEX eu_law_edges_relation_idx ON eu_law_edges (relation_type);
-CREATE INDEX eu_law_edges_effective_idx ON eu_law_edges (effective_date);
+**Vectorization:** Named vectors per language (same slots as `EULaws`). The embedded text is the natural-language amendment description, e.g.:
+
+> "CELEX 32024R1157 replaces Article 17(3)(c) of CELEX 32016R0679. Previous text: '…'. New text: '…'. Effective from 2024-07-01."
+
+**Uniqueness UUID:** `uuid5(amending_celex + "::" + target_celex + "::" + article_hierarchy + "::" + change_type)`. Re-runs overwrite the same amendment instruction.
+
+### Identity
+
+| # | Field | Type | Source | Notes |
+|---|---|---|---|---|
+| 1 | `chunk_id` | TEXT | Pipeline | `amend_{target_celex}_{article_hierarchy}` |
+| 2 | `chunk_index` | INT | Pipeline | N-th amendment inside the amending act |
+| 3 | `content_hash` | TEXT | Computed | SHA-256 of description |
+| 4 | `celex` | TEXT | Pipeline | Mirror of `amending_celex`, for retriever compatibility |
+
+### Source (the amending act)
+
+| # | Field | Type | Notes |
+|---|---|---|---|
+| 5 | `amending_celex` | TEXT | CELEX of the act doing the amending (e.g. `32024R1157`) |
+| 6 | `amending_article` | TEXT | Which article within the amending act contains this instruction |
+| 7 | `amending_title` | TEXT | Denormalized for display without a Weaviate cross-reference |
+| 8 | `amending_document_subtype` | TEXT | regulation / directive / decision / corrigendum / etc. |
+
+### Target (the act being changed)
+
+| # | Field | Type | Notes |
+|---|---|---|---|
+| 9 | `target_celex` | TEXT | CELEX of the act being modified |
+| 10 | `target_article` | TEXT | Top-level article number (e.g. "17") |
+| 11 | `article_hierarchy` | TEXT | Precise path inside the article (e.g. "Article 17(3)(c)") |
+| 12 | `target_title` | TEXT | Denormalized title of target act |
+| 13 | `target_document_subtype` | TEXT | Subtype of the target |
+| 14 | `consolidated_celex` | TEXT | Nullable; CELEX of the published consolidated version (if any) |
+
+### Change semantics
+
+| # | Field | Type | Notes |
+|---|---|---|---|
+| 15 | `change_type` | TEXT | `replace` / `delete` / `add` / `modify` / `renumber` / `consolidate` / `correct` / `implement` |
+| 16 | `impact_level` | TEXT | `major` / `minor` / `clarification` / `renumber` — LLM-classified |
+| 17 | `repeals_entirely` | BOOL | True when the amendment deletes the target article outright |
+| 18 | `effective_date` | DATE | When the amendment takes effect |
+| 19 | `amendment_number` | INT | 1-based position among amendments in the same amending act |
+
+### Text per language (embedded via named vectors)
+
+| # | Field | Type | Notes |
+|---|---|---|---|
+| 20 | `text_en` | TEXT | Full amendment description, English |
+| 21 | `text_el` | TEXT | Greek, added when that language is ingested |
+| 22 | `text_de` | TEXT | Reserved |
+| 23 | `text_fr` | TEXT | Reserved |
+| 24 | `text_it` | TEXT | Reserved |
+
+### Raw before/after (English only)
+
+| # | Field | Type | Notes |
+|---|---|---|---|
+| 25 | `old_text` | TEXT | Nullable (null for `add` change_type) |
+| 26 | `new_text` | TEXT | Nullable (null for `delete` change_type) |
+
+### Summaries (REQUIRED on every chunk — same pattern as EULaws)
+
+| # | Field | Type | Notes |
+|---|---|---|---|
+| 27 | `document_summary` | TEXT | Summary of the whole AMENDING ACT. Same value across all amendments in that act. |
+| 28 | `chunk_summary` | TEXT | 1-2 sentence summary of THIS specific amendment. |
+| 29 | `contextual_prefix` | TEXT | ~50-token prefix prepended at embed time |
+
+### Inherited metadata
+
+| # | Field | Type | Notes |
+|---|---|---|---|
+| 30 | `legal_domain` | TEXT | Inherited from target act (GDPR → `data_protection`) |
+| 31 | `topic_tags` | TEXT_ARRAY | From controlled vocab |
+| 32 | `cross_references` | TEXT_ARRAY | Other CELEX mentioned inside the amendment body |
+
+### Provenance
+
+| # | Field | Type | Notes |
+|---|---|---|---|
+| 33 | `data_source` | TEXT | `cellar_sparql` (doc-level, conf 1.0) / `llm_extraction` (article-level, conf 0.85-0.95) / `manual` |
+| 34 | `confidence` | NUMBER | 0.0–1.0 |
+
+### Bookkeeping (38 fields total)
+
+| # | Field | Type | Notes |
+|---|---|---|---|
+| 35 | `language_list` | TEXT_ARRAY | Languages present on this row |
+| 36 | `fetched_at` | DATE | |
+| 37 | `extracted_at` | DATE | |
+| 38 | `word_count` | INT | |
+
+### Population strategy
+
+- **Pass 1 — CELLAR SPARQL** (fast, confidence=1.0). Document-level edges from `cdm:resource_legal_amends_resource_legal`, `cdm:resource_legal_repeals_resource_legal`, `cdm:resource_legal_based_on_resource_legal`. Runs when user clicks the "EU Amendments" Run button in the app.
+- **Pass 2 — LLM article-level** (confidence=0.85-0.95). Runs INSIDE the Stage 2 metadata extraction of `incremental-laws` when the current CELEX is an amending act. The LLM produces a structured list of amendments (target_celex, article_hierarchy, change_type, old_text, new_text, effective_date, impact_level, chunk_summary) and `amendment_extractor.record_llm_amendments(...)` upserts them.
+- **Deduplication** via deterministic Weaviate UUID. `data.update` overwrites on re-insert; higher-confidence row wins because Pass 2 runs after Pass 1 and the LLM output is richer.
+
+### Graph-walk queries (application-layer, no Postgres)
+
+Amendment chain for CELEX X (depth 1):
+```python
+coll = client.collections.get("EUAmendments")
+changes = coll.query.fetch_objects(
+    filters=Filter.by_property("target_celex").equal("32016R0679"),
+    sort=Sort.by_property("effective_date", ascending=False),
+    limit=100,
+).objects
 ```
 
-**Population strategy:**
-- **Pass 1 (fast, high confidence):** CELLAR SPARQL dump using the predicates from `02_DATA_SOURCES.md`. Produces confidence=1.0 edges at document level. `data_source='cellar_sparql'`.
-- **Pass 2 (LLM, medium confidence):** Runs during Stage 2 metadata extraction. Extracts article-level citations from the amending act's text (formulaic — "Article X is replaced by..."), classifies interpretation strength for case-law edges. `data_source='llm_extraction'`, `confidence=0.85-0.95`.
-- **Deduplication:** `INSERT ... ON CONFLICT (source_celex, source_article, target_celex, target_article, relation_type) DO UPDATE SET confidence = GREATEST(excluded.confidence, eu_law_edges.confidence), data_source = CASE WHEN excluded.confidence > eu_law_edges.confidence THEN excluded.data_source ELSE eu_law_edges.data_source END`
-
-**Graph walk examples (recursive CTE):**
-```sql
--- Amendment chain: what laws led to the current state of CELEX X?
-WITH RECURSIVE chain AS (
-  SELECT source_celex, target_celex, 1 AS depth
-  FROM eu_law_edges
-  WHERE target_celex = $1 AND relation_type IN ('amends', 'repeals', 'replaces')
-  UNION
-  SELECT e.source_celex, e.target_celex, c.depth + 1
-  FROM eu_law_edges e JOIN chain c ON e.target_celex = c.source_celex
-  WHERE c.depth < 5 AND e.relation_type IN ('amends', 'repeals', 'replaces')
-)
-SELECT * FROM chain;
-
--- All cases interpreting a specific article
-SELECT source_celex, source_doc_type, effective_date, interpretation_strength
-FROM eu_law_edges
-WHERE relation_type = 'interprets' 
-  AND target_celex = $1 AND target_article = $2
-ORDER BY effective_date DESC;
-```
+Depth-N chain: application-layer loop, N sequential queries. For typical N ≤ 3 this is fast enough. If deeper walks become hot, we add a materialized cache.
