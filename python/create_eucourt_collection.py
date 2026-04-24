@@ -1,15 +1,14 @@
-"""Create the EUCourtDecisions Weaviate collection on the lawgicfeb26 cluster.
+"""Create the EUCourtDecisions Weaviate collection (CJ + GC judgments, orders, AG opinions).
 
-Schema is locked in docs/handoff/03_SCHEMAS.md section 2. Shares base
-fields with EULaws but adds case-law-specific fields (ecli, court_level,
-procedure_type, parties, holding, legal_principle, regulations_interpreted,
-authority_weight, judges, advocate_general) and replaces in_force with
-is_overturned, etc.
+Schema per docs/handoff/03_SCHEMAS.md §2. Two-level chunking: one holding
+chunk per decision (embedded with case_summary + legal_principle + holding),
+N reasoning chunks grouped as 3-5 paragraphs each.
 
-Two-level chunking is reflected via chunk_type = 'holding' | 'reasoning'.
-See docs/handoff/07_RETRIEVAL.md for embedding-input composition rules.
+Same infrastructure as EULaws (Vault-grade HNSW+RQ, tuned BM25, multilingual
+stopwords, sharding, replication) with case-law-specific fields replacing
+in_force/superseded_by with is_overturned/overturned_by.
 
-Idempotent — never drops an existing collection.
+Idempotent — no-op if the collection exists.
 """
 
 from __future__ import annotations
@@ -17,20 +16,41 @@ from __future__ import annotations
 import os
 
 import weaviate
-from weaviate.classes.config import Configure, DataType, Property, VectorDistances
+from weaviate.classes.config import DataType, Property, Tokenization
+
+from python.shared.weaviate_config import (
+    all_named_vectors,
+    inverted_index_config,
+    replication_config,
+    sharding_config,
+)
 
 
 COLLECTION_NAME = "EUCourtDecisions"
 
 
-def _named_vector(name: str):
-    return Configure.NamedVectors.none(
-        name=name,
-        vector_index_config=Configure.VectorIndex.hnsw(
-            quantizer=Configure.VectorIndex.Quantizer.rq(bits=8),
-            distance_metric=VectorDistances.DOT,
-        ),
-    )
+def _text(name, *, description="", tokenization=Tokenization.WORD,
+          searchable=True, filterable=False):
+    return Property(name=name, description=description, data_type=DataType.TEXT,
+                    tokenization=tokenization,
+                    index_searchable=searchable, index_filterable=filterable)
+
+
+def _keyword(name, *, description=""):
+    return Property(name=name, description=description, data_type=DataType.TEXT,
+                    tokenization=Tokenization.FIELD,
+                    index_searchable=False, index_filterable=True)
+
+
+def _filterable_text(name, *, description=""):
+    return Property(name=name, description=description, data_type=DataType.TEXT,
+                    tokenization=Tokenization.WORD,
+                    index_searchable=True, index_filterable=True)
+
+
+def _date(name, *, description="", range_filter=True):
+    return Property(name=name, description=description, data_type=DataType.DATE,
+                    index_filterable=True, index_range_filters=range_filter)
 
 
 def main() -> None:
@@ -45,65 +65,107 @@ def main() -> None:
 
         client.collections.create(
             name=COLLECTION_NAME,
-            vectorizer_config=[
-                _named_vector("vector_en"),
-                _named_vector("vector_el"),
-                _named_vector("vector_de"),
-                _named_vector("vector_fr"),
-                _named_vector("vector_it"),
-            ],
+            description="EU court decisions: Court of Justice (CJ) + General Court (GC) "
+                        "judgments, orders, and AG opinions. Two-level chunking.",
+            vectorizer_config=all_named_vectors(),
+            inverted_index_config=inverted_index_config(),
+            sharding_config=sharding_config(),
+            replication_config=replication_config(),
             properties=[
-                # Shared base (1-21 from EULaws) with case-law adjustments
-                Property(name="celex", data_type=DataType.TEXT),
-                Property(name="eli_uri", data_type=DataType.TEXT),
-                Property(name="chunk_id", data_type=DataType.TEXT),
-                Property(name="chunk_index", data_type=DataType.INT),
-                Property(name="content_hash", data_type=DataType.TEXT),
-                Property(name="text_en", data_type=DataType.TEXT),
-                Property(name="text_el", data_type=DataType.TEXT),
-                Property(name="text_de", data_type=DataType.TEXT),
-                Property(name="text_fr", data_type=DataType.TEXT),
-                Property(name="text_it", data_type=DataType.TEXT),
-                Property(name="document_summary", data_type=DataType.TEXT),
-                Property(name="chunk_summary", data_type=DataType.TEXT),
-                Property(name="contextual_prefix", data_type=DataType.TEXT),
-                # Case-law doc metadata replacements
-                Property(name="document_subtype", data_type=DataType.TEXT),  # judgment|order|ag_opinion
-                Property(name="document_date", data_type=DataType.DATE),
-                Property(name="date_of_judgment", data_type=DataType.DATE),
-                Property(name="is_overturned", data_type=DataType.BOOL),
-                Property(name="overturned_by", data_type=DataType.TEXT),
-                Property(name="source_citation", data_type=DataType.TEXT),
-                Property(name="eurovoc_concepts", data_type=DataType.TEXT_ARRAY),
-                Property(name="eurovoc_ids", data_type=DataType.TEXT_ARRAY),
-                # Case-law specific fields
-                Property(name="ecli", data_type=DataType.TEXT),
-                Property(name="court_level", data_type=DataType.TEXT),  # CJ | GC
-                Property(name="procedure_type", data_type=DataType.TEXT),
-                Property(name="parties", data_type=DataType.TEXT),
-                Property(name="language_of_case", data_type=DataType.TEXT),
-                Property(name="chunk_type", data_type=DataType.TEXT),  # holding | reasoning
-                Property(name="case_summary", data_type=DataType.TEXT),
-                Property(name="legal_principle", data_type=DataType.TEXT),
-                Property(name="holding", data_type=DataType.TEXT),
+                # Identity
+                _keyword("celex"),
+                _keyword("ecli", description="European Case Law Identifier, e.g. ECLI:EU:C:2009:405"),
+                _keyword("eli_uri"),
+                _keyword("chunk_id"),
+                Property(name="chunk_index", data_type=DataType.INT, index_filterable=True),
+                _keyword("content_hash"),
+
+                # Text per language
+                _text("text_en", tokenization=Tokenization.WORD),
+                _text("text_el", tokenization=Tokenization.WORD),
+                _text("text_de", tokenization=Tokenization.WORD),
+                _text("text_fr", tokenization=Tokenization.WORD),
+                _text("text_it", tokenization=Tokenization.WORD),
+
+                # Summaries
+                _text("document_summary",
+                      description="3-5 sentence summary of the entire decision; stated holding required",
+                      tokenization=Tokenization.TRIGRAM),
+                _text("chunk_summary",
+                      description="1-2 sentence summary of this specific chunk",
+                      tokenization=Tokenization.TRIGRAM),
+                _text("contextual_prefix",
+                      description="~50-token prefix prepended at embed time",
+                      tokenization=Tokenization.WORD, searchable=False),
+
+                # Document metadata
+                _filterable_text("document_subtype",
+                                 description="judgment|order|ag_opinion"),
+                _date("document_date"),
+                _date("date_of_judgment"),
+                Property(name="is_overturned", data_type=DataType.BOOL, index_filterable=True),
+                _keyword("overturned_by", description="CELEX of overturning decision"),
+                _text("source_citation", tokenization=Tokenization.WORD),
+                Property(name="eurovoc_concepts", data_type=DataType.TEXT_ARRAY,
+                         tokenization=Tokenization.WORD,
+                         index_searchable=True, index_filterable=True),
+                Property(name="eurovoc_ids", data_type=DataType.TEXT_ARRAY,
+                         tokenization=Tokenization.FIELD, index_filterable=True),
+                _text("title", tokenization=Tokenization.TRIGRAM),
+
+                # Case-law-specific
+                _filterable_text("court_level", description="CJ (Court of Justice) | GC (General Court)"),
+                _filterable_text("procedure_type",
+                                 description="preliminary-reference|direct-action|appeal|infringement|opinion"),
+                _text("parties",
+                      description="e.g. 'Commission v Greece'",
+                      tokenization=Tokenization.TRIGRAM),
+                _filterable_text("language_of_case",
+                                 description="ISO 639-1 of authentic original (often 'fr')"),
+                _filterable_text("chunk_type", description="holding | reasoning"),
+                _text("case_summary",
+                      description="Facts + decision, 3-5 sentences",
+                      tokenization=Tokenization.TRIGRAM),
+                _text("legal_principle",
+                      description="The rule of law established, plain-English (Qwen3.6 Plus)",
+                      tokenization=Tokenization.TRIGRAM),
+                _text("holding",
+                      description="Operative part restated clearly (Qwen3.6 Plus)",
+                      tokenization=Tokenization.WORD),
                 Property(name="regulations_interpreted", data_type=DataType.OBJECT_ARRAY,
                          nested_properties=[
-                             Property(name="celex", data_type=DataType.TEXT),
-                             Property(name="article", data_type=DataType.TEXT),
-                             Property(name="strength", data_type=DataType.TEXT),
+                             Property(name="celex", data_type=DataType.TEXT,
+                                      tokenization=Tokenization.FIELD),
+                             Property(name="article", data_type=DataType.TEXT,
+                                      tokenization=Tokenization.FIELD),
+                             Property(name="strength", data_type=DataType.TEXT,
+                                      tokenization=Tokenization.WORD),
                          ]),
-                Property(name="authority_weight", data_type=DataType.TEXT),  # binding | persuasive
-                Property(name="judges", data_type=DataType.TEXT_ARRAY),
-                Property(name="advocate_general", data_type=DataType.TEXT),
+                _filterable_text("authority_weight",
+                                 description="binding (CJ/GC judgments) | persuasive (AG opinions)"),
+                Property(name="judges", data_type=DataType.TEXT_ARRAY,
+                         tokenization=Tokenization.WORD, index_filterable=True),
+                _text("advocate_general", tokenization=Tokenization.WORD),
+
                 # Shared LLM fields
-                Property(name="cross_references", data_type=DataType.TEXT_ARRAY),
-                Property(name="penalty_type", data_type=DataType.TEXT_ARRAY),
-                Property(name="effective_dates", data_type=DataType.DATE_ARRAY),
-                # Ingestion bookkeeping
-                Property(name="language_list", data_type=DataType.TEXT_ARRAY),
-                Property(name="fetched_at", data_type=DataType.DATE),
-                Property(name="extracted_at", data_type=DataType.DATE),
-                Property(name="word_count", data_type=DataType.INT),
+                _filterable_text("legal_domain"),
+                Property(name="topic_tags", data_type=DataType.TEXT_ARRAY,
+                         tokenization=Tokenization.WORD,
+                         index_searchable=True, index_filterable=True),
+                Property(name="cross_references", data_type=DataType.TEXT_ARRAY,
+                         tokenization=Tokenization.FIELD, index_filterable=True),
+                Property(name="penalty_type", data_type=DataType.TEXT_ARRAY,
+                         tokenization=Tokenization.WORD, index_filterable=True),
+                Property(name="effective_dates", data_type=DataType.DATE_ARRAY,
+                         index_filterable=True, index_range_filters=True),
+
+                # Bookkeeping
+                Property(name="language_list", data_type=DataType.TEXT_ARRAY,
+                         tokenization=Tokenization.WORD, index_filterable=True),
+                _date("fetched_at"),
+                _date("extracted_at"),
+                Property(name="word_count", data_type=DataType.INT,
+                         index_filterable=True, index_range_filters=True),
                 Property(name="char_count", data_type=DataType.INT),
             ],
         )
