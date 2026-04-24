@@ -32,6 +32,7 @@ header.app-header {
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
+.header-right { display: flex; gap: 8px; align-items: center; }
 
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-dot {
@@ -41,7 +42,13 @@ header.app-header {
 }
 .brand-name { font-weight: 600; letter-spacing: 0.2px; }
 
-main { padding: 24px; display: grid; gap: 16px; max-width: 1100px; margin: 0 auto; }
+main {
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+  max-width: 1240px;
+  margin: 0 auto;
+}
 
 .panel {
   background: var(--panel);
@@ -75,6 +82,7 @@ button:hover:not(:disabled) { background: #f0f2f5; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.primary { background: var(--accent); color: white; border-color: var(--accent); }
 button.primary:hover:not(:disabled) { background: #083e80; }
+button.ghost { background: transparent; }
 
 .icon-btn {
   -webkit-app-region: no-drag;
@@ -95,25 +103,73 @@ select, input[type="text"], input[type="password"], input[type="number"] {
 
 .muted { color: var(--muted); }
 
-.status-grid {
+/* Three-panel row for Laws / Cases / Amendments */
+.panels-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
 }
-.status-card {
-  padding: 12px;
+@media (max-width: 1040px) {
+  .panels-row { grid-template-columns: 1fr; }
+}
+.ingest-panel {
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fafbfc;
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.status-card .label {
+.ingest-panel header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ingest-panel h2 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--fg);
+  letter-spacing: 0.2px;
+}
+.ingest-panel .subtitle {
   font-size: 12px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
-.status-card .value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+.ingest-panel .hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
 
+/* Status chips */
+.status-mini {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 26px;
+  align-items: center;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: #f0f2f5;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+.chip b { font-weight: 700; font-family: var(--mono); }
+.chip-ok    { background: #dcfce7; border-color: #86efac; color: #065f46; }
+.chip-info  { background: #dbeafe; border-color: #93c5fd; color: #1e3a8a; }
+.chip-warn  { background: #fef3c7; border-color: #fde68a; color: #92400e; }
+.chip-err   { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+.chip-muted { background: #f3f4f6; border-color: #e5e7eb; color: #6b7280; }
+
+/* Activity feed */
 .activity-feed {
   max-height: 280px;
   overflow-y: auto;
@@ -125,11 +181,11 @@ select, input[type="text"], input[type="password"], input[type="number"] {
   border-radius: 8px;
   line-height: 1.5;
 }
-.activity-feed .evt-ok { color: #86efac; }
+.activity-feed .evt-ok   { color: #86efac; }
 .activity-feed .evt-warn { color: #fde68a; }
-.activity-feed .evt-err { color: #fca5a5; }
+.activity-feed .evt-err  { color: #fca5a5; }
 
-/* modal */
+/* Settings modal */
 .modal {
   position: fixed; inset: 0;
   background: rgba(12, 16, 22, 0.42);

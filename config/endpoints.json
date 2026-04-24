@@ -8,7 +8,7 @@
   "dashscope_singapore": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
   "dashscope_beijing": "https://dashscope.aliyuncs.com/compatible-mode/v1",
   "voyage_api": "https://api.voyageai.com/v1",
-  "weaviate_cluster": "lawgicfeb26",
+  "_weaviate_host_note": "Weaviate cluster URL is user-configured via Settings (WEAVIATE_HOST env var). Not stored in the repo — every Lawgic deployment uses its own cluster.",
   "courtesy": {
     "sparql_page_size": 500,
     "sparql_max_pages": 20,

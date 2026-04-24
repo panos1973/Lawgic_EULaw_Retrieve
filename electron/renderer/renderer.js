@@ -1,24 +1,25 @@
 // Renderer-side glue. Talks to the main process via window.lawgicEU (see preload.js).
 
 const $ = (id) => document.getElementById(id);
+const byAttr = (attr, val) => document.querySelector(`[${attr}="${val}"]`);
 
 const els = {
   language: $("sel-language"),
   scope: $("sel-scope"),
-  status: $("btn-status"),
-  incremental: $("btn-incremental"),
-  addLang: $("btn-add-lang"),
+  refreshStatus: $("btn-refresh-status"),
   estimate: $("btn-estimate"),
-  stop: $("btn-stop"),
   verify: $("btn-verify-cache"),
   evalBtn: $("btn-eval"),
+  addLang: $("btn-add-lang"),
   settingsBtn: $("btn-settings"),
-  statusGrid: $("status-grid"),
   activity: $("activity"),
   modal: $("settings-modal"),
   modalForm: $("settings-form"),
   modalClose: $("btn-close-settings"),
   modalCancel: $("btn-cancel-settings"),
+  miniLaw: $("status-mini-law"),
+  miniCase: $("status-mini-case"),
+  miniAmend: $("status-mini-amendment"),
 };
 
 function appendActivity(level, text) {
@@ -31,30 +32,47 @@ function appendActivity(level, text) {
   while (els.activity.children.length > 500) els.activity.removeChild(els.activity.lastChild);
 }
 
-function renderStatusCounts(counts) {
-  const order = ["embedded", "enriched", "fetched", "discovered",
-                 "failed_fetch", "failed_enrich", "failed_embed",
-                 "failed_integrity", "missing_source", "superseded"];
-  els.statusGrid.innerHTML = "";
-  for (const key of order) {
-    const val = counts[key] ?? 0;
-    const card = document.createElement("div");
-    card.className = "status-card";
-    card.innerHTML = `<div class="label">${key.replace(/_/g, " ")}</div><div class="value">${val}</div>`;
-    els.statusGrid.appendChild(card);
+function renderMini(container, counts) {
+  const fields = [
+    ["embedded", "ok"], ["enriched", "info"],
+    ["fetched", "info"], ["discovered", "info"],
+    ["failed_fetch", "err"], ["failed_enrich", "err"], ["failed_embed", "err"],
+    ["missing_source", "warn"], ["superseded", "muted"],
+  ];
+  container.innerHTML = "";
+  for (const [key, tone] of fields) {
+    const n = counts?.[key] ?? 0;
+    if (!n && tone === "err") continue;
+    const chip = document.createElement("span");
+    chip.className = `chip chip-${tone}`;
+    chip.innerHTML = `<b>${n}</b> ${key.replace(/_/g, " ")}`;
+    container.appendChild(chip);
+  }
+  if (!container.children.length) {
+    container.innerHTML = `<span class="muted">No documents yet.</span>`;
   }
 }
 
-function setRunning(on) {
-  els.status.disabled = on;
-  els.incremental.disabled = on;
-  els.estimate.disabled = on;
-  els.verify.disabled = on;
-  els.evalBtn.disabled = on;
-  els.stop.disabled = !on;
+// Track which panel is "running" so only its stop button is live.
+const panels = {
+  "law":       { runBtn: byAttr("data-action", "run-laws"),       stopBtn: byAttr("data-action", "stop-laws"),       kind: "law" },
+  "case":      { runBtn: byAttr("data-action", "run-cases"),      stopBtn: byAttr("data-action", "stop-cases"),      kind: "case" },
+  "amendment": { runBtn: byAttr("data-action", "run-amendments"), stopBtn: byAttr("data-action", "stop-amendments"), kind: "amendment" },
+};
+
+function setPanelRunning(kind, running) {
+  for (const [k, p] of Object.entries(panels)) {
+    const isMe = k === kind;
+    p.runBtn.disabled = running;
+    p.stopBtn.disabled = !(running && isMe);
+  }
+  els.refreshStatus.disabled = running;
+  els.estimate.disabled = running;
+  els.verify.disabled = running;
+  els.evalBtn.disabled = running;
 }
 
-// Event stream handlers
+// Event streams
 window.lawgicEU.onEvent((event) => {
   if (!event || !event.type) return;
   switch (event.type) {
@@ -72,11 +90,25 @@ window.lawgicEU.onEvent((event) => {
     case "fetch_missing_source":
       appendActivity("warn", `missing ${event.celex} in ${event.language || "?"}`);
       break;
-    case "status_aggregate":
-      renderStatusCounts(event.counts || {});
+    case "status_aggregate": {
+      const counts = event.counts || {};
+      renderMini(els.miniLaw, counts.law || counts);
+      renderMini(els.miniCase, counts.case || {});
+      renderMini(els.miniAmend, counts.amendment || {});
+      break;
+    }
+    case "incremental_amendments_summary":
+      appendActivity("ok", `Amendments pass 1: ${event.pass1_count} rows inserted`);
+      break;
+    case "pass1_completed":
+      appendActivity("ok", `Pass 1 (CELLAR edges): ${event.count} rows`);
       break;
     case "cost_estimate":
-      appendActivity("ok", `Estimated: $${event.total_usd.toFixed(2)} for ${event.scope}/${event.language}`);
+      if (typeof event.total_usd === "number") {
+        appendActivity("ok", `Estimated: $${event.total_usd.toFixed(2)} for ${event.scope}/${event.language}`);
+      } else {
+        appendActivity("info", JSON.stringify(event));
+      }
       break;
     default:
       appendActivity("info", JSON.stringify(event));
@@ -87,51 +119,60 @@ window.lawgicEU.onLog((text) => appendActivity("info", text.trim()));
 window.lawgicEU.onDone(({ exitCode, verb }) => {
   appendActivity(exitCode === 0 ? "ok" : "error",
                  `> ${verb || "pipeline"} done (exit ${exitCode})`);
-  setRunning(false);
+  setPanelRunning(null, false);
 });
 window.lawgicEU.onError((msg) => {
   appendActivity("error", msg);
-  setRunning(false);
+  setPanelRunning(null, false);
 });
 
-// Button wiring
-els.status.addEventListener("click", () => {
-  setRunning(true);
-  window.lawgicEU.status();
-});
-
-els.incremental.addEventListener("click", () => {
-  setRunning(true);
-  window.lawgicEU.incremental({
-    languages: [els.language.value],
-    scope: els.scope.value,
+// Panel actions
+panels.law.runBtn.addEventListener("click", () => {
+  setPanelRunning("law", true);
+  window.lawgicEU.incrementalLaws({
+    languages: [els.language.value], scope: els.scope.value,
   });
 });
-
-els.addLang.addEventListener("click", () => {
-  const lang = prompt("Language code to add (e.g. el, de, fr, it)");
-  if (!lang) return;
-  setRunning(true);
-  window.lawgicEU.addLanguage({ language: lang });
+panels.case.runBtn.addEventListener("click", () => {
+  setPanelRunning("case", true);
+  window.lawgicEU.incrementalCases({
+    languages: [els.language.value], scope: els.scope.value,
+  });
 });
+panels.amendment.runBtn.addEventListener("click", () => {
+  setPanelRunning("amendment", true);
+  window.lawgicEU.incrementalAmendments({ limit: 2000 });
+});
+for (const p of Object.values(panels)) {
+  p.stopBtn.addEventListener("click", () => window.lawgicEU.stop());
+}
 
+// Header / global
+els.refreshStatus.addEventListener("click", () => {
+  setPanelRunning("law", true);
+  window.lawgicEU.status();
+});
 els.estimate.addEventListener("click", () => {
-  setRunning(true);
+  setPanelRunning("law", true);
   window.lawgicEU.estimateCost({
     scope: els.scope.value === "all" ? "tier_b" : "tier_a",
     language: els.language.value,
     firstLanguage: els.language.value === "en",
   });
 });
-
-els.stop.addEventListener("click", () => window.lawgicEU.stop());
 els.verify.addEventListener("click", () => {
-  setRunning(true);
+  setPanelRunning("law", true);
   window.lawgicEU.verifyCache();
 });
 els.evalBtn.addEventListener("click", () => {
-  setRunning(true);
+  setPanelRunning("law", true);
   window.lawgicEU.evalExtraction({ docs: 20 });
+});
+els.addLang.addEventListener("click", () => {
+  const lang = prompt("Language code to add (e.g. el, de, fr, it)");
+  if (!lang) return;
+  setPanelRunning("law", true);
+  window.lawgicEU.addLanguage({ language: lang });
 });
 
 // Settings modal

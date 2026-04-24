@@ -13,13 +13,16 @@
       <span class="brand-dot"></span>
       <span class="brand-name">Lawgic &middot; EU Law Retrieve</span>
     </div>
-    <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
+    <div class="header-right">
+      <button id="btn-refresh-status" class="ghost">Refresh all status</button>
+      <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
+    </div>
   </header>
 
   <main>
     <section class="panel controls">
       <div class="row">
-        <label>Language</label>
+        <label>Primary language</label>
         <select id="sel-language">
           <option value="en" selected>English (active)</option>
           <option value="el" disabled>Greek (phase 2 &mdash; schema slot reserved)</option>
@@ -33,22 +36,56 @@
           <option value="priority" selected>Priority domains (MVP)</option>
           <option value="all">All in-force</option>
         </select>
-      </div>
 
-      <div class="row buttons">
-        <button id="btn-status">Refresh status</button>
-        <button id="btn-incremental" class="primary">Run incremental update</button>
-        <button id="btn-add-lang" disabled title="Enable after Phase 2">Add new language</button>
-        <button id="btn-estimate">Estimate cost</button>
-        <button id="btn-stop" disabled>Stop</button>
+        <button id="btn-estimate" class="ghost">Estimate cost</button>
       </div>
     </section>
 
-    <section class="panel status">
-      <h2>Status</h2>
-      <div id="status-grid" class="status-grid">
-        <div class="muted">Click <em>Refresh status</em> to load counts from EULawIngestionStatus.</div>
+    <section class="panels-row">
+
+      <div class="ingest-panel" data-kind="law">
+        <header>
+          <h2>EU Laws</h2>
+          <span class="subtitle">Regulations &middot; Directives &middot; Decisions</span>
+        </header>
+        <div class="status-mini" id="status-mini-law">
+          <span class="muted">No status loaded.</span>
+        </div>
+        <div class="row buttons">
+          <button class="primary" data-action="run-laws">Run incremental update</button>
+          <button data-action="stop-laws" disabled>Stop</button>
+        </div>
       </div>
+
+      <div class="ingest-panel" data-kind="case">
+        <header>
+          <h2>EU Court Decisions</h2>
+          <span class="subtitle">Court of Justice &middot; General Court &middot; AG Opinions</span>
+        </header>
+        <div class="status-mini" id="status-mini-case">
+          <span class="muted">No status loaded.</span>
+        </div>
+        <div class="row buttons">
+          <button class="primary" data-action="run-cases">Run incremental update</button>
+          <button data-action="stop-cases" disabled>Stop</button>
+        </div>
+      </div>
+
+      <div class="ingest-panel" data-kind="amendment">
+        <header>
+          <h2>EU Amendments</h2>
+          <span class="subtitle">Article-level changes across legislation</span>
+        </header>
+        <div class="status-mini" id="status-mini-amendment">
+          <span class="muted">No status loaded.</span>
+        </div>
+        <div class="row buttons">
+          <button class="primary" data-action="run-amendments">Run incremental update</button>
+          <button data-action="stop-amendments" disabled>Stop</button>
+        </div>
+        <p class="hint">Runs best AFTER EU Laws are ingested (needs target CELEX to exist).</p>
+      </div>
+
     </section>
 
     <section class="panel activity">
@@ -61,11 +98,11 @@
       <div class="row buttons">
         <button id="btn-verify-cache">Verify DashScope cache</button>
         <button id="btn-eval">Run extraction eval (20 docs)</button>
+        <button id="btn-add-lang" disabled title="Enable after Phase 2">Add new language</button>
       </div>
     </section>
   </main>
 
-  <!-- Settings modal -->
   <div id="settings-modal" class="modal hidden">
     <div class="modal-card">
       <header>
@@ -87,17 +124,15 @@
         </fieldset>
 
         <fieldset>
-          <legend>Endpoints</legend>
-          <label>Weaviate host
-            <input type="text" name="weaviate_host" placeholder="https://lawgicfeb26.weaviate.network">
+          <legend>Weaviate</legend>
+          <label>Cluster URL
+            <input type="text" name="weaviate_host"
+                   placeholder="https://your-cluster.weaviate.cloud">
           </label>
-          <label>Weaviate API key
+          <label>API key
             <input type="password" name="weaviate_api_key" autocomplete="off">
           </label>
-          <label>Postgres DATABASE_URL
-            <input type="password" name="database_url" placeholder="postgres://..." autocomplete="off">
-          </label>
-          <label>DashScope Base URL
+          <label>DashScope Base URL (optional)
             <input type="text" name="dashscope_base_url"
                    placeholder="https://dashscope-intl.aliyuncs.com/compatible-mode/v1">
           </label>
@@ -110,7 +145,7 @@
               <option value="qwen3.5-flash" selected>qwen3.5-flash (default)</option>
             </select>
           </label>
-          <label>Reasoning (case law holdings)
+          <label>Reasoning (case law holdings, amendments)
             <select name="model_reasoning">
               <option value="qwen3.6-plus" selected>qwen3.6-plus (default)</option>
             </select>
