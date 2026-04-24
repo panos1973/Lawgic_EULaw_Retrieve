@@ -5,54 +5,50 @@
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │                 Lawgic_EULaw_Retrieve (Electron)               │
-│  UI: language selector, status panel, "add language",          │
-│      "incremental update", settings (API keys)                 │
+│  Three ingestion panels: EU Laws / EU Court Decisions /        │
+│  EU Amendments. Each with its own Run / Stop / Status.         │
+│  Settings panel stores creds in OS userData.                   │
 └───────────────────────────────┬────────────────────────────────┘
                                 │
                   ┌─────────────┴──────────────┐
                   │                            │
         ┌─────────▼────────┐        ┌──────────▼─────────┐
-        │  Python pipeline │        │  Status + watermark│
-        │   Stage 1 fetch  │        │   (read from       │
-        │   Stage 2 LLM    │        │    Weaviate at     │
-        │   Stage 3 embed  │        │    session start)  │
+        │  Python pipeline │        │  Status collection │
+        │   Stage 1 fetch  │        │   (read at session │
+        │   Stage 2 LLM    │        │    start → derive  │
+        │   Stage 3 embed  │        │    Atom watermark) │
         └─────────┬────────┘        └────────────────────┘
                   │
-   ┌──────────────┼───────────────┬────────────────┐
-   │              │               │                │
-┌──▼────┐   ┌─────▼──────┐  ┌─────▼─────┐   ┌──────▼──────┐
-│CELLAR │   │ DashScope  │  │ Voyage AI │   │ Postgres    │
-│SPARQL │   │ Qwen 3.5F  │  │ voyage-   │   │ pgvector    │
-│+ Atom │   │ Qwen 3.6P  │  │ context-3 │   │ + edges     │
-│ feed  │   │ (+Gemini   │  │           │   │ table       │
-│       │   │  fallback) │  │           │   │             │
-└───────┘   └────────────┘  └─────┬─────┘   └─────────────┘
+   ┌──────────────┼───────────────┐
+   │              │               │
+┌──▼────┐   ┌─────▼──────┐  ┌─────▼─────┐
+│CELLAR │   │ DashScope  │  │ Voyage AI │
+│SPARQL │   │ Qwen 3.5F  │  │ voyage-   │
+│+ Atom │   │ Qwen 3.6P  │  │ context-3 │
+│ feed  │   │ (+Gemini   │  │           │
+│       │   │  fallback) │  │           │
+└───────┘   └────────────┘  └─────┬─────┘
                                   │
-                          ┌───────▼────────┐
-                          │    Weaviate    │
-                          │  lawgicfeb26   │
-                          │  cluster:      │
-                          │  • EULaws      │
-                          │  • EUCourt     │
-                          │  • EULawInges  │
-                          │    tionStatus  │
-                          └────────────────┘
+                  ┌───────────────▼────────────────┐
+                  │         Weaviate               │
+                  │  User-configured cluster       │
+                  │    • EULaws                    │
+                  │    • EUCourtDecisions          │
+                  │    • EUAmendments              │
+                  │    • EULawIngestionStatus      │
+                  └────────────────────────────────┘
 ```
 
-## Weaviate collections (all on lawgicfeb26 cluster)
+## Weaviate collections (all in the user-configured cluster — no Postgres)
 
 | Collection | Has vectors? | Purpose | Row count at full scope |
 |---|---|---|---|
 | `EULaws` | Yes — named vectors per language | Regulations, directives, decisions (chunks) | ~450k chunks (Tier A MVP) |
 | `EUCourtDecisions` | Yes — named vectors per language | CJ + GC + AG opinions (chunks, two-level) | ~150k chunks (Tier A MVP) |
-| `EULawIngestionStatus` | No | Per-document processing state — the single source of truth for "what has been ingested" | ~35k rows |
+| `EUAmendments` | Yes — named vectors per language | Atomic amendments: one row per "Article X of CELEX A replaced/deleted/added by CELEX B" change | ~50k–200k rows |
+| `EULawIngestionStatus` | No | Per-document processing state — single source of truth for what's been ingested | ~35k rows |
 
-## Postgres tables (same DB as Lawgic's existing pgvector)
-
-| Table | Purpose |
-|---|---|
-| `eu_law_edges` | Knowledge graph: amendments, repeals, citations, interpretations. Sourced from CELLAR SPARQL (confidence=1.0) + LLM article-level extraction (confidence=0.85-0.95). |
-| `eu_law_edges_effective_dates` (optional) | Per-edge effective-date annotations if we decide to store separately rather than inline. |
+**Postgres is no longer part of the stack.** An earlier draft had a `eu_law_edges` table for the knowledge graph; per the 2026-04 decision ("better to have everything in a single place"), amendments now live in the `EUAmendments` Weaviate collection with both structured fields and named vectors. Graph walks become app-layer filter queries on `target_celex`; typical depth ≤ 3, fast enough.
 
 Full schemas in `03_SCHEMAS.md`.
 
@@ -81,12 +77,15 @@ WHERE status != 'embedded' OR status IS NULL
 ```
 No separate watermark collection — eliminates the race condition where watermark drifts out of sync with actual state.
 
-## Why Postgres for the knowledge graph, not Weaviate
+## Why amendments are in Weaviate (not Postgres) — revised 2026-04
 
-1. Graph walks are recursive by nature. "Find all laws that amend X, plus all laws those amend, up to depth 5" is three lines of recursive CTE in Postgres. In Weaviate, it's an application-layer loop issuing N queries — slow and fragile.
-2. Graph edges don't need vector similarity. A relation row has no text to embed. Storing them in Weaviate wastes HNSW index capacity.
-3. Edge cardinality is high. ~50k EU acts × avg 4 edges × article-level expansion = 500k–1M edges. Postgres handles this trivially; Weaviate's sweet spot is vector objects.
-4. Lawgic already runs Postgres (Drizzle ORM, pgvector for uploaded files). No new infrastructure.
+An earlier draft put the knowledge graph in Postgres (`eu_law_edges` table). Per user call "better to have everything in a single place", we moved to a Weaviate collection (`EUAmendments`) that stores both the structural edge AND the actual amendment TEXT, with semantic vectors per language.
+
+Trade-offs accepted:
+- **Graph walks become application-layer filter queries** on `target_celex`. For depth ≤ 3 (the common case in legal queries), this is fast enough.
+- **Win:** amendments are now semantically searchable ("find amendments changing how consent is defined"), not just structurally queryable.
+- **Win:** one credential set, one API, one backup story. No Postgres infrastructure burden.
+- **Win:** the retriever stack (Lawgic's Weaviate-first layer) queries amendments with the same client as laws + cases.
 
 ## Repo structure target
 
@@ -108,19 +107,19 @@ Lawgic_EULaw_Retrieve/
 │   │   ├── fetcher.py             # SPARQL + Atom feed + XHTML download
 │   │   ├── parser.py              # XHTML → chunks (article / two-level)
 │   │   ├── extractor.py           # LLM metadata extraction with model router
-│   │   ├── amendment_extractor.py # CELLAR SPARQL + LLM article-level edges
+│   │   ├── amendment_extractor.py # CELLAR SPARQL + LLM → upsert to EUAmendments Weaviate
 │   │   ├── language_adder.py      # "Add language" flow — Voyage embed only
 │   │   └── model_router.py        # Task → model mapping
 │   ├── shared/
 │   │   ├── embedder.py            # Voyage + Weaviate upsert (named vectors)
 │   │   ├── status.py              # Read/write EULawIngestionStatus
 │   │   ├── cdm_ontology.py        # Parse CDM OWL file → authoritative predicates
+│   │   ├── weaviate_config.py     # Shared HNSW / BM25 / stopwords / sharding config
 │   │   └── utils.py               # Logging, emit, config loading
 │   ├── create_eulaws_collection.py        # Weaviate schema: EULaws
 │   ├── create_eucourt_collection.py       # Weaviate schema: EUCourtDecisions
+│   ├── create_euamendments_collection.py  # Weaviate schema: EUAmendments
 │   ├── create_eustatus_collection.py      # Weaviate schema: EULawIngestionStatus
-│   ├── migrations/
-│   │   └── 001_eu_law_edges.sql  # Postgres knowledge graph table
 │   └── requirements.txt
 ├── scripts/
 │   ├── eval_extraction.py         # 20-doc eval across 3 models
@@ -138,7 +137,7 @@ Lawgic_EULaw_Retrieve/
 - UK/AU fetchers (`python/uk/`, `python/au/`) — delete
 - CFR titles config — delete
 - Maritime-specific metadata fields (vessel_types, port_names, sea_areas, crew_rank, imo_convention_reference, etc.) — delete
-- `ShippingAmendment` collection name — rename to `EULawAmendments` (in Postgres, not Weaviate)
+- `ShippingAmendment` collection name — replaced by `EUAmendments` Weaviate collection (no Postgres)
 - Maritime EuroVoc concept filters (4830, 5889, 2524, 2455) — replace with priority legal-domain concepts
 
 ## What we ARE copying verbatim
