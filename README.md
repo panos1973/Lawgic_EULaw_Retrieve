@@ -18,12 +18,12 @@ tracks European Union legislation and case law for use by the
 A CELLAR SPARQL + Atom-feed fetcher pulls EU documents; a parser splits them
 into chunks (article-level for legislation, two-level for case law) with an
 Anthropic-style contextual prefix; Qwen3.5 Flash (default) and Qwen3.6 Plus
-(case-law reasoning) enrich each chunk with English metadata via DashScope
-OpenAI-compat; Voyage `voyage-context-3` embeds the result; Weaviate's
-`lawgicfeb26` cluster stores chunks in two collections (`EULaws`,
-`EUCourtDecisions`) with named vectors per language; a third collection
-(`EULawIngestionStatus`) tracks per-document state; a Postgres table
-(`eu_law_edges`) holds the amendment/interpretation knowledge graph.
+(case-law reasoning, amendments) enrich each chunk with English metadata
+via DashScope OpenAI-compat; Voyage `voyage-context-3` embeds the result;
+a Weaviate cluster (user-configured) stores chunks in **four** collections:
+`EULaws`, `EUCourtDecisions`, `EUAmendments` (atomic amendments with text +
+vectors), and `EULawIngestionStatus` (per-document state). **No Postgres** —
+everything in Weaviate.
 
 ## Repo layout
 
@@ -48,18 +48,18 @@ Lawgic_EULaw_Retrieve/
 │   │   ├── fetcher.py           # CELLAR SPARQL + Atom + XHTML download
 │   │   ├── parser.py            # XHTML → chunks (article / two-level)
 │   │   ├── extractor.py         # LLM metadata (DashScope Qwen + Gemini fallback)
-│   │   ├── amendment_extractor.py # Pass 1 SPARQL edges + Pass 2 LLM article-level
+│   │   ├── amendment_extractor.py # SPARQL + LLM → EUAmendments Weaviate upsert
 │   │   ├── language_adder.py    # "Add language" flow (text + named vector only)
 │   │   └── model_router.py      # task → model mapping (05_MODEL_STACK.md)
 │   ├── shared/
 │   │   ├── embedder.py          # Voyage + Weaviate upsert with named vectors
 │   │   ├── status.py            # EULawIngestionStatus R/W
 │   │   ├── cdm_ontology.py      # rdflib parser for CDM OWL
+│   │   ├── weaviate_config.py   # Shared HNSW / BM25 / stopwords / sharding
 │   │   └── utils.py             # config loader, emit(), sha256, uuid5
-│   ├── migrations/
-│   │   └── 001_eu_law_edges.sql # Postgres knowledge-graph DDL
 │   ├── create_eulaws_collection.py
 │   ├── create_eucourt_collection.py
+│   ├── create_euamendments_collection.py
 │   └── create_eustatus_collection.py
 ├── scripts/
 │   ├── parse_cdm_ontology.py    # one-off: rewrite config/cdm_predicates.json
@@ -94,11 +94,11 @@ Before any ingestion (per `docs/handoff/09_IMPLEMENTATION_PLAN.md` Phase 1):
 
 - [ ] `python scripts/parse_cdm_ontology.py` — rewrites `config/cdm_predicates.json` with verified predicates
 - [ ] `python scripts/verify_eurovoc_ids.py` — confirms priority-domain EuroVoc IDs resolve
-- [ ] Open the app, fill in Settings (DashScope, Voyage, Weaviate, Postgres)
+- [ ] Open the app, fill in Settings (DashScope, Voyage, Weaviate)
 - [ ] `python python/create_eulaws_collection.py`
 - [ ] `python python/create_eucourt_collection.py`
+- [ ] `python python/create_euamendments_collection.py`
 - [ ] `python python/create_eustatus_collection.py`
-- [ ] Run Postgres migration: `psql "$DATABASE_URL" < python/migrations/001_eu_law_edges.sql`
 - [ ] `python scripts/verify_qwen_cache.py` — confirm caching works on chosen endpoint
 
 ## Locked decisions
@@ -108,7 +108,7 @@ See `docs/handoff/00_OVERVIEW.md` for the full list. Short version:
 - Named vectors per language within collections (Weaviate 1.24+)
 - English is the primary metadata language
 - State tracking lives in `EULawIngestionStatus`, not on disk
-- Postgres for the knowledge graph, not Weaviate
+- **Everything in Weaviate** (revised 2026-04): amendments moved from a Postgres `eu_law_edges` table into a `EUAmendments` Weaviate collection with vectors + text
 - Model stack: Qwen3.5 Flash + Qwen3.6 Plus + Gemini fallback. No Claude.
 - Contextual retrieval prefix (Anthropic pattern) is mandatory
 
