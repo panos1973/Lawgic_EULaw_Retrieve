@@ -1,15 +1,16 @@
-"""Thin dispatcher. Subcommands are called from electron/main.js via Python subprocess.
+"""Thin dispatcher. Three parallel ingestion verbs — one per content type.
 
-Verbs (mapped one-to-one with IPC in electron/main.js):
-    status         — emit status_aggregate event with EULawIngestionStatus counts
-    incremental    — Atom-feed-based incremental update across languages
-    add-language   — layer a new language's vectors onto embedded docs
-    fetch          — Stage 1 only (for Phase 2 dev)
-    extract        — Stage 2 only (for Phase 2 dev)
-    embed          — Stage 3 only (for Phase 2 dev)
-    pass1-edges    — populate eu_law_edges from CELLAR SPARQL
+Verbs wired from electron/main.js:
+    status                   — emit counts from EULawIngestionStatus
+    incremental-laws         — new legislation (EULaws)
+    incremental-cases        — new court decisions (EUCourtDecisions)
+    incremental-amendments   — new amendment rows (EUAmendments) for already-
+                               embedded target CELEX.
+    add-language             — layer a new language's vectors onto embedded docs
+    fetch                    — Stage 1 only (dev)
+    pass1-edges              — bulk SPARQL amendment seed (EUAmendments only)
 
-All verbs emit single-line JSON events to stdout via python.shared.utils.emit().
+All verbs emit single-line JSON events to stdout for Electron to parse.
 """
 
 from __future__ import annotations
@@ -27,18 +28,42 @@ def cmd_status(args) -> int:
     return 0
 
 
-def cmd_incremental(args) -> int:
-    """Weekly/on-demand update. See docs/handoff/08_ELECTRON_APP.md "Incremental update flow".
+def cmd_incremental_laws(args) -> int:
+    """Weekly/on-demand ingestion for legislation.
 
-    1. Pre-flight: derive watermark = MIN(cellar_recorded_at) WHERE status != 'embedded'.
-    2. Poll CELLAR Atom feed for entries newer than watermark.
-    3. For each new CELEX: fetch, extract (English only, once), embed per language.
-    4. Refresh amendment graph for the incremental set.
-    5. Repeal detection: mark superseded CELEX.
+    1. Watermark from EULawIngestionStatus (kind='law').
+    2. Atom feed -> new legislation CELEX list.
+    3. For each: fetch, parse, Stage 2 LLM (English metadata), Stage 3 embed, mark.
     """
-    emit("log", level="info", message=f"Incremental update; languages={args.languages} scope={args.scope}")
-    log("warn", "incremental flow not yet wired. See docs/handoff/09_IMPLEMENTATION_PLAN.md Phase 2-3.")
+    emit("log", level="info",
+         message=f"incremental-laws; languages={args.languages} scope={args.scope}")
+    log("warn", "incremental-laws flow not yet wired. See docs/handoff/09_IMPLEMENTATION_PLAN.md Phase 2.")
     return 1
+
+
+def cmd_incremental_cases(args) -> int:
+    """Weekly/on-demand ingestion for court decisions.
+
+    Two-level chunking: holding chunks use Qwen3.6 Plus (reasoning on).
+    """
+    emit("log", level="info",
+         message=f"incremental-cases; languages={args.languages} scope={args.scope}")
+    log("warn", "incremental-cases flow not yet wired. See docs/handoff/09_IMPLEMENTATION_PLAN.md Phase 4.")
+    return 1
+
+
+def cmd_incremental_amendments(args) -> int:
+    """Run amendment extraction for already-embedded target CELEX.
+
+    Needs EULaws to be populated first (otherwise target CELEX are unknown).
+    """
+    from python.eu.amendment_extractor import run_pass1_sparql_edges
+    emit("log", level="info", message=f"incremental-amendments (Pass 1 SPARQL)")
+    count = run_pass1_sparql_edges(limit=args.limit)
+    emit("incremental_amendments_summary", pass1_count=count)
+    # Pass 2 (article-level LLM) fires during incremental-laws Stage 2;
+    # no separate command needed.
+    return 0
 
 
 def cmd_add_language(args) -> int:
@@ -57,18 +82,6 @@ def cmd_fetch(args) -> int:
     return 0
 
 
-def cmd_extract(args) -> int:
-    emit("log", level="warn",
-         message="extract stage CLI entry not yet wired; call from pipeline.py cmd_incremental or Phase 2 dev scripts.")
-    return 1
-
-
-def cmd_embed(args) -> int:
-    emit("log", level="warn",
-         message="embed stage CLI entry not yet wired; Stage 3 runs inline after Stage 2 during normal pipeline.")
-    return 1
-
-
 def cmd_pass1_edges(args) -> int:
     from python.eu.amendment_extractor import run_pass1_sparql_edges
     n = run_pass1_sparql_edges(limit=args.limit)
@@ -84,10 +97,19 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_status)
 
-    sp = sub.add_parser("incremental")
+    sp = sub.add_parser("incremental-laws")
     sp.add_argument("--languages", default="en")
     sp.add_argument("--scope", default="priority")
-    sp.set_defaults(func=cmd_incremental)
+    sp.set_defaults(func=cmd_incremental_laws)
+
+    sp = sub.add_parser("incremental-cases")
+    sp.add_argument("--languages", default="en")
+    sp.add_argument("--scope", default="priority")
+    sp.set_defaults(func=cmd_incremental_cases)
+
+    sp = sub.add_parser("incremental-amendments")
+    sp.add_argument("--limit", type=int, default=2000)
+    sp.set_defaults(func=cmd_incremental_amendments)
 
     sp = sub.add_parser("add-language")
     sp.add_argument("--language", required=True)
@@ -97,12 +119,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--language", default="en")
     sp.add_argument("--limit", type=int, default=500)
     sp.set_defaults(func=cmd_fetch)
-
-    sp = sub.add_parser("extract")
-    sp.set_defaults(func=cmd_extract)
-
-    sp = sub.add_parser("embed")
-    sp.set_defaults(func=cmd_embed)
 
     sp = sub.add_parser("pass1-edges")
     sp.add_argument("--limit", type=int, default=2000)
